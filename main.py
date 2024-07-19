@@ -1,9 +1,13 @@
-import torch
 import pandas as pd
 import numpy as np
 import linearpartition as lp
-from torch.optim import Adam
+from numpy_ml.neural_nets.optimizers import Adam
 import logging
+from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
+
+num_threads = os.cpu_count()
 
 logging.basicConfig(filename='history.log', level=logging.INFO, 
                     format='%(asctime)s - %(message)s', 
@@ -28,10 +32,9 @@ PSI_SHAPE2PROB_SIG = dict()
 for name in NAMES:
     PSI_SHAPE2PROB_SIG[name] =  1/(np.exp((psi_shape_dict[name] - 2)) + 1)
 
-def symmetrize(matrix):
-    return (matrix + matrix.T) / 2
+SYM_4 = [(i, j) for i in range(4) for j in range(i, 4)]
 
-M1PSI = torch.tensor([
+M1PSI = np.array([
     [0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, -52, -70, 0],
     [0, 0, 0, 0, 0, -89, -1, 0],
@@ -40,102 +43,105 @@ M1PSI = torch.tensor([
     [0, -52, -89, 0, 0, -154, -107, 0],
     [0, -70, -1, 0, 0, -107, -112, 0],
     [0, 0, 0, 0, 0, 0, 0, 0]
-    ], dtype = torch.float64)
-M1PSI_TERM = torch.tensor([31.0])
+    ], dtype = np.float64)
+M1PSI_TERM = np.array([31.0], dtype = np.float64)
 
-def washi_diff(gc: torch.Tensor,
-               psi2: torch.Tensor,
-               term: torch.Tensor):
-    stack_x = torch.zeros(8, 8, dtype = torch.float64)
+
+def shape_diff(
+        name: str, 
+        stack_x: np.array,
+):
+    global SEQUENCES, PSI_SHAPE2PROB_SIG
+    if name not in SEQUENCES:
+        raise KeyError(f"Name {name} not found in SEQUENCES")
+    seq = SEQUENCES[name]
+    _, _, probvec = lp.partition(seq, update_stack=stack_x)
+    return np.linalg.norm(PSI_SHAPE2PROB_SIG[name] - probvec) ** 2
+
+@lru_cache(maxsize = 1024)
+def washi_diff(update: tuple, executor: ThreadPoolExecutor):
+    update= np.array(update)
+    gc = update[:8].reshape(2, 4)
+    psi2_upper = update[8:18]
+    psi2 = np.zeros((4, 4), dtype=np.float64)
+    global SYM_4
+    for idx, (i, j) in enumerate(SYM_4):
+        psi2[i, j] = psi2_upper[idx]
+        if i != j:
+            psi2[j, i] = psi2_upper[idx]
+    stack_x = np.zeros((8, 8), dtype = np.float64)
     stack_x[1:3, 3:7] = gc
     stack_x[3:7, 1:3] = gc.T
     stack_x[3:7, 3:7] = psi2
-    terminal_x = term
 
     global M1PSI, M1PSI_TERM
-    diff_with_dutta = torch.linalg.matrix_norm(
+    diff_with_dutta = np.linalg.norm(
         stack_x - M1PSI 
-    ) + (terminal_x - M1PSI_TERM) ** 2
+    ) ** 2 
 
-    prob_diff = 0.0
+    global NAMES
+    futures = [executor.submit(shape_diff, name, stack_x) for name in NAMES]
+    results = [future.result() for future in as_completed(futures)]
+    prob_diff = sum(results)
 
-    global SEQUENCES, NAMES, PSI_SHAPE2PROB_SIG
-    for name in NAMES:
-        seq = SEQUENCES[name]
-        bpmtx, fe = lp.partition(seq, 
-                        update_stack = stack_x, 
-                        update_terminal = terminal_x)
-        bpp = pd.DataFrame(bpmtx)
-        
-        bpp_vector = np.array([
-                (bpp['prob'][bpp['i'] == i].sum() + 
-                bpp['prob'][bpp['j'] == i].sum()) 
-            for i in range(0, len(seq))
-        ])
+    return prob_diff + diff_with_dutta * 0.01
 
-        prob_diff += np.linalg.norm(
-            PSI_SHAPE2PROB_SIG[name] - bpp_vector
-        )
-    
-    logging.info(f"Step From Dutta: {diff_with_dutta.item() : .4f}")
-    logging.info(f"Step From Prob: {prob_diff : .4f}")
-    return prob_diff
-
-
+def num_gradient(func: callable, params: tuple, 
+                 executor: ThreadPoolExecutor,
+                 epsilon = 1e-6, 
+                 max_norm = 100):
+    def calc_grad(i, func = func, params = params, epsilon = epsilon):
+        origin = func(params, executor)
+        params_copy = params[:i] + (params[i] + epsilon,) + params[i+1:]
+        plus = func(params_copy, executor)
+        return (plus - origin) / epsilon
+    futures = [executor.submit(calc_grad, i) for i in range(len(params))]
+    results = [future.result() for future in as_completed(futures)]
+    grads = np.array(results)
+    if np.linalg.norm(grads) > max_norm:
+        grads = grads / np.linalg.norm(grads) * max_norm
+    return grads
 
 if __name__ == "__main__":
+    seed = 902
+    np.random.seed(seed = seed)
+    init = np.array(
+        [0, 0, -52, -70,
+         0, 0, -89, -1, 
+         0, 0,  0,    0,
+            0,  0,    0,
+             -154, -107, 
+                   -112]
+    , dtype = np.float64)
+    noise = 10 * np.random.randn(init.size)
+    init += noise
+    name = "stack"
 
-    seed = 50
-    torch.manual_seed(seed = seed)
-
-    init_gc = torch.tensor([
-        [0, 0, -52, -70],
-        [0, 0, -89,  -1]
-    ], dtype= torch.float64)
-    rand_gc = 10 * torch.randn(2, 4)
-    init_gc += rand_gc
-    init_gc.requires_grad_(True)
-
-    init_psi2 = torch.tensor([
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, -154, -107],
-        [0, 0, -107, -112]
-    ], dtype = torch.float64)
-    rand_psi2 = 10 * torch.rand(4, 4)
-    init_psi2 += rand_psi2
-    init_psi2.requires_grad_(True)
-
-    init_term = torch.tensor([31.0], dtype=torch.float64)
-    rand_term = 10 * torch.randn(1)
-    init_term += rand_term
-    init_term.requires_grad_(True)
-
-    optimizer = Adam([{'params': init_gc}, {'params': init_psi2}, {'params': init_term}], lr = 0.5)
+    optimizer = Adam(lr=0.30)
     num_iters = 1000
 
-    for i in range(num_iters):
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        for i in range(num_iters):
+            logging.info(f"Beginning Loss Function Calc for Iteration {i}:")
+            loss = washi_diff(tuple(init), executor)
+            grads = num_gradient(washi_diff, tuple(init), executor)
+            init = optimizer.update(init, grads, name, cur_loss = loss)
 
-        optimizer.zero_grad()
-        loss = washi_diff(init_gc, init_psi2, init_term)
-        loss.backward()
-        
-        # Print gradients
-        print(f"Iteration {i} loss: {loss.item(): .4f}")
-        logging.info(f"Iteration {i} loss: {loss.item() : .4f}")
+            logging.info(f"Iteration {i} loss: {loss:.4f}")
 
-        optimizer.step()
-        with torch.no_grad():
-            init_psi2.data = symmetrize(init_psi2.data)
+            total_grad_norm = np.linalg.norm(grads)
 
-        form_gc = "\n".join([",".join([f"{p:.4f}" for p in row]) for row in init_gc.detach().tolist()])
-        form_psi2 = "\n".join([",".join([f"{p:.4f}" for p in row]) for row in init_psi2.detach().tolist()])
-        form_term = f"{init_term.item():.4f}"
-        print(f"Updated GC parameters: \n {form_gc}")
-        print(f"Updated Psi-Psi parameters: \n {form_psi2}")
-        print(f"Updated Terminal parameters: {form_term}")
-        print("--------------------")
-        logging.info(f"Updated parameters: \n {form_gc}")
-        logging.info(f"Updated Psi-Psi parameters: \n  {form_psi2}")
-        logging.info(f"Updated Terminal parameters: {form_term}")
-        logging.info("--------------------")
+            logging.info(f"Total gradient norm: {total_grad_norm:.4f}")
+
+            form_gc = "\n".join([",".join([f"{p:.4f}" for p in row]) for row in init[:8].reshape(2, 4)])
+            psi_up = init[8:18]
+            psi = np.zeros((4, 4), dtype=np.float64)
+            for idx, (i, j) in enumerate(SYM_4):
+                psi[i, j] = psi_up[idx]
+                if i != j:
+                    psi[j, i] = psi_up[idx]
+            form_psi2 = "\n".join([",".join([f"{p:.4f}" for p in row]) for row in psi])
+
+            logging.info(f"Updated parameters: \n {form_gc}")
+            logging.info(f"Updated Psi-Psi parameters: \n  {form_psi2}")
+            logging.info("--------------------")
