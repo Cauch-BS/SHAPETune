@@ -5,13 +5,7 @@ from numpy_ml.neural_nets.optimizers import Adam
 import logging
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import os
-
-num_threads = os.cpu_count()
-
-logging.basicConfig(filename='history.log', level=logging.INFO, 
-                    format='%(asctime)s - %(message)s', 
-                    datefmt='%Y-%m-%d %H:%M:%S')
+import argparse
 
 psi_shape = pd.read_csv('n1mpsi.csv').fillna(float('-inf'))
 psi_shape_num = psi_shape.iloc[1:].apply(pd.to_numeric, errors='coerce')
@@ -20,6 +14,8 @@ psi_shape_num = psi_shape_num.rename(columns = psi_shape.iloc[0])
 full_seq = pd.read_csv('seq_identity.csv')
 SEQUENCES = full_seq.set_index('Name')['Sequence']
 NAMES = psi_shape.iloc[0].tolist()
+LUCIFERASE = tuple(elem for elem in NAMES if elem[0] == 'L')
+HEPO = tuple(elem for elem in NAMES if elem[0] != 'L')
 
 psi_shape_dict = dict()
 for name in NAMES:
@@ -55,11 +51,12 @@ def shape_diff(
     if name not in SEQUENCES:
         raise KeyError(f"Name {name} not found in SEQUENCES")
     seq = SEQUENCES[name]
-    _, _, probvec = lp.partition(seq, update_stack=stack_x)
+    probvec = lp.partition(seq, update_stack=stack_x)['prob_vector']
     return np.linalg.norm(PSI_SHAPE2PROB_SIG[name] - probvec) ** 2
 
 @lru_cache(maxsize = 1024)
-def washi_diff(update: tuple, executor: ThreadPoolExecutor):
+def washi_diff(update: tuple, executor: ThreadPoolExecutor,
+               names: tuple):
     update= np.array(update)
     gc = update[:8].reshape(2, 4)
     psi2_upper = update[8:18]
@@ -79,21 +76,20 @@ def washi_diff(update: tuple, executor: ThreadPoolExecutor):
         stack_x - M1PSI 
     ) ** 2 
 
-    global NAMES
-    futures = [executor.submit(shape_diff, name, stack_x) for name in NAMES]
+    futures = [executor.submit(shape_diff, name, stack_x) for name in names]
     results = [future.result() for future in as_completed(futures)]
     prob_diff = sum(results)
 
     return prob_diff + diff_with_dutta * 0.01
 
-def num_gradient(func: callable, params: tuple, 
+def num_gradient(func: callable, params: tuple, names: tuple, 
                  executor: ThreadPoolExecutor,
                  epsilon = 1e-6, 
-                 max_norm = 100):
-    def calc_grad(i, func = func, params = params, epsilon = epsilon):
-        origin = func(params, executor)
+                 max_norm = 10.0):
+    def calc_grad(i, func = func, names = names, params = params, epsilon = epsilon):
+        origin = func(params, executor, names)
         params_copy = params[:i] + (params[i] + epsilon,) + params[i+1:]
-        plus = func(params_copy, executor)
+        plus = func(params_copy, executor, names)
         return (plus - origin) / epsilon
     futures = [executor.submit(calc_grad, i) for i in range(len(params))]
     results = [future.result() for future in as_completed(futures)]
@@ -102,8 +98,20 @@ def num_gradient(func: callable, params: tuple,
         grads = grads / np.linalg.norm(grads) * max_norm
     return grads
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description = "Run optimization for the Washietl model")
+    parser.add_argument("--p", type = int, default = 1, help = "Number of threads to use for optimization")
+    parser.add_argument("--seed", type = int, default = 922, help = "Random seed (default: 904)")
+    parser.add_argument('--lr', type=float, default=0.05, help='Learning rate (default: 0.05)')
+    parser.add_argument('--log', type=str, default='history_.log', help='Log file name (default: history_.log)')
+    return parser.parse_args()
+
 if __name__ == "__main__":
-    seed = 902
+    args = parse_arguments()
+    logging.basicConfig(filename=args.log, level=logging.INFO, 
+                        format='%(asctime)s - %(message)s', 
+                        datefmt='%Y-%m-%d %H:%M:%S')
+    seed = args.seed
     np.random.seed(seed = seed)
     init = np.array(
         [0, 0, -52, -70,
@@ -117,17 +125,19 @@ if __name__ == "__main__":
     init += noise
     name = "stack"
 
-    optimizer = Adam(lr=0.30)
+    optimizer = Adam(lr=args.lr)
     num_iters = 1000
 
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+    with ThreadPoolExecutor(max_workers=args.p) as executor:
         for i in range(num_iters):
             logging.info(f"Beginning Loss Function Calc for Iteration {i}:")
-            loss = washi_diff(tuple(init), executor)
-            grads = num_gradient(washi_diff, tuple(init), executor)
+            loss = washi_diff(tuple(init), executor, LUCIFERASE)
+            validation = washi_diff(tuple(init), executor, HEPO)
+            grads = num_gradient(washi_diff, tuple(init), LUCIFERASE, executor)
             init = optimizer.update(init, grads, name, cur_loss = loss)
 
             logging.info(f"Iteration {i} loss: {loss:.4f}")
+            logging.info(f"Iteration {i} validation score: {validation:.4f}")
 
             total_grad_norm = np.linalg.norm(grads)
 
