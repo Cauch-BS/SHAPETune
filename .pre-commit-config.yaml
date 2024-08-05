@@ -1,0 +1,5 @@
+-   repo: https://github.com/jorisroovers/gitlint
+    rev:  # Fill in a tag / sha here (e.g. v0.19.1)
+    hooks:
+    -   id: gitlint
+
