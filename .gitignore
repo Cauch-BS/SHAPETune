@@ -176,4 +176,5 @@ pyrightconfig.json
 # Personal Additions
 *.log*
 *.swp*
-*ltex.* 
+*ltex.*
+@eaDir/

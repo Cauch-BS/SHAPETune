@@ -1,20 +1,60 @@
 {
-    "editor.formatOnSave": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    "editor.tabSize" : 4,
     "files.exclude": {
-        "**/.git": true,
         "**/.pyc": true,
         "**/__pycache__": true,
         "**/.mypy_cache": true,
+        "**/.devbox": true,
+        "**/.ruff_cache": true,
+        "**/.pytest_cache": true,
+        "**/.pixi": true,
+        "**/xlp.egg-info": true,
+        "build": true,
+        "dist": true,
     },
-    "editor.tabSize": 4,
     "editor.wordWrap": "on",
-    "python.defaultInterpreterPath": "${env:SHAPE_REG_PATH}",
-    "mypy-type-checker.args": [
-        "--ignore-missing-imports"
-    ],
-    "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
+    "[markdown]": {
+        "editor.tabSize": 2
     },
+    "[cpp]": {
+        "outline.showArrays": true,
+        "outline.showClasses": true,
+        "outline.showEnums": true,
+        "outline.showFunctions": true,
+        "outline.showMethods": true,
+        "outline.showNamespaces": true,
+        "outline.showStructs": true,
+        "editor.formatOnSave": false
+    },
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.rulers": [
+            80
+        ],
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+        },
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": true
+    },
+    "python.defaultInterpreterPath": "${env:CONDA_PATH}/envs/${env:XLP_ENV_NAME}/bin/python",
+    "python.testing.unittestEnabled": true,
+    "ruff.enable": true,
+    "ruff.lint.args": [
+        "--config=ruff.toml",
+        "--exclude=refs/",
+    ],
+    "ruff.format.args": [
+        "--config=ruff.toml"
+    ],
+    "mypy-type-checker.args": [
+        "--config-file=mypy.ini"
+    ],
     "multiCommand.commands": [
         {
             "command": "multiCommand.markdownPreviewBottom",
@@ -23,5 +63,13 @@
                 "workbench.action.toggleEditorGroupLayout"
             ]
         }
-    ]
+    ],
+    "C_Cpp.errorSquiggles": "enabled",
+    "isort.args" : [
+        "--profile=black"
+    ],
+    "files.associations": {
+        ".gitlint": "toml",
+
+    },
 }

@@ -1,7 +1,0 @@
-[
-    {
-        "key": "Ctrl + D Ctrl + Down",
-        "command": "multiCommand.markdownPreviewBottom",
-        "when": "editorTextFocus"
-    }
-]

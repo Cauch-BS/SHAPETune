@@ -1,0 +1,17 @@
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-vscode.cpptools",
+        "ms-python.black-formatter",
+        "ms-python.mypy-type-checker",
+        "ms-python.isort",
+        "charliermarsh.ruff",
+        "ExodiusStudios.comment-anchors",
+        /*some other recommended extensions
+        "valentjn.vscode-ltex",
+        "bierner.markdown-checkbox",
+        "tamasfe.even-better-toml",
+        "Gruntfuggly.todo-tree",
+        */
+    ]
+}
