@@ -1,0 +1,47 @@
+[build-system]
+requires = ["pip >= 19.0",
+            "setuptools >= 41.0",
+            "wheel >= 0.31.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shapetune"
+version = "0.1.0"
+description = "Fitting Structural Parameters to SHAPE Data"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [
+    {name = "Chaebeom Sheen", email = "cauchybs@snu.ac.kr"},
+]
+keywords = [
+    "python",
+    "bioinformatics",
+    "RNA"
+]
+
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Development Status :: 1 - Planning",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "jax>=0.4.27",
+    "jaxlib>=0.4.27",
+    "numpy>=1.18.0",
+    "scipy>=1.4.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["shapetune"]
+
+[project.urls]
+repository = "https://github.com/Cauch-BS/SHAPETune"
