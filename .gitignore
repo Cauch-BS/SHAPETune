@@ -178,3 +178,4 @@ pyrightconfig.json
 *.swp*
 *ltex.*
 @eaDir/
+.pixi/
