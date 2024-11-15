@@ -41,7 +41,9 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["shapetune"]
+include = ["shapetune*"]
+
+
 
 [project.urls]
 repository = "https://github.com/Cauch-BS/SHAPETune"
