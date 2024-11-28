@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 import jax.numpy as jnp
 import jax.scipy.special as jsp
-from jax import Array, jit, lax
+from jax import Array, jit, lax, vmap
 from scipy.constants import Avogadro, Boltzmann, calorie, zero_Celsius
 
 
@@ -328,26 +328,38 @@ def _partition_arr(
 
 
 def partition(
-    seq: str,
+    seqs: list[str] | str,
     energy_stack: Array,
     constants: CONSTANTS = CONSTANTS,  # type: ignore
 ) -> tuple[Array, Array]:
-    seq = seq.upper().replace("T", "U")
-    seqarr = jnp.frombuffer(
-        seq.encode().translate(constants.TRANSLATER), dtype=jnp.uint8
+    if isinstance(seqs, str):
+        seqs = [seqs]
+    seqarrs = jnp.vstack(
+        [
+            jnp.frombuffer(
+                seq.upper().replace("T", "U").encode().translate(constants.TRANSLATER),
+                dtype=jnp.uint8,
+            )
+            for seq in seqs
+        ],
+        dtype=jnp.uint8,
     )
 
-    pair_prefix, pair_suffix, all_prefix, _ = _partition_arr(
-        seqarr,
-        energy_stack,
-    )
+    print(seqarrs)
+
+    pair_prefixes, pair_suffixes, all_prefixes, _ = vmap(
+        partial(_partition_arr, energy_stack=energy_stack),
+        in_axes=0,
+        out_axes=0,
+    )(seqarrs)
 
     @jit
     def bp_prob(prefix: Array, suffix: Array, norm: Array) -> Array:
+        norm = norm[:, None, None]
         return jnp.exp(prefix + suffix - norm)
 
-    bpp = bp_prob(pair_prefix, pair_suffix, all_prefix[0, -1])
-    efe = -constants.THERMAL_ENERGY * all_prefix[0, -1]
+    bpp = bp_prob(pair_prefixes, pair_suffixes, all_prefixes[:, 0, -1])
+    efe = -constants.THERMAL_ENERGY * all_prefixes[:, 0, -1]
 
     return bpp, efe
 
@@ -360,7 +372,7 @@ if __name__ == "__main__":
     bpp, efe = partition(seq, energy_stack)
     jnp.set_printoptions(precision=3, suppress=True)
     print(f"Base Pair Probability:\n{bpp}")
-    print(f"Ensemble Free Energy: {efe:.2f} kcal/mol")
+    print(f"Ensemble Free Energy: {efe} kcal/mol")
 
     # import numpy as np
     # import ViennaRNA
